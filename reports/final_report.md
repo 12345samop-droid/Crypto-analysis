@@ -20,39 +20,46 @@ The boundary of a "day" is strictly defined using the date portion of the `open_
 - Days containing fewer than 6 four-hour candles were discarded.
 - Samples where `t+1` is partial or invalid were dropped to ensure accurate labels.
 
-## 4. Feature Engineering Summary
-Features are constructed strictly using information up to the end of day `t`:
+## 4. Feature Engineering Summary (Iterated)
+Features are constructed strictly using information up to the end of day `t`. Extensive iterations were performed to uncover any structural edge:
 - **Candle Structure:** Range ratios, body ratios, wick ratios, close location within daily range.
 - **Multi-day Context:** Rolling means, volatility indices (rolling range/average range), and distance from rolling highs/lows.
 - **Cross-asset (BTC) Context:** BTC's rolling volatility regime and daily return.
 - **Calendar effects:** Weekday, month, quarter.
+- **Intraday Sequence (New):** First-half return vs second-half return, indices of the high/low (did high happen before low?), and the return of the final 4H candle of the day.
+- **Volume Dynamics (New):** Daily volume spikes relative to recent averages.
 
 ## 5. Validation Design
 A chronologically split Walk-Forward Validation (Expanding Window) was implemented to replicate live out-of-sample conditions. Ties were excluded from binary evaluation.
-We used 5 splits to robustly evaluate performance decay. Random label permutation tests and asset stability checks were performed on the final holdout.
+We used 5 splits to robustly evaluate performance decay. Asset-specific modeling and high-confidence filtering (thresholding prob > 0.53 or < 0.47) were also utilized to check for conditional edges.
 
 ## 6. Best Model / Results
-We tested several baselines (Majority Class, Momentum, Reversion), Logistic Regression, and LightGBM.
+We tested baselines, simple regime heuristics (Volume spikes + Mean reversion), Logistic Regression, and LightGBM models (both pooled and asset-specific).
 
 **In-sample (LightGBM on first 70%):**
-- Accuracy: 0.77
-- ROC-AUC: 0.865
+- Accuracy: ~0.77
+- ROC-AUC: ~0.865
 
-**Out-of-sample (Test sets across walk-forward splits):**
-- Split 1: AUC = 0.514, Acc = 0.516
-- Split 2: AUC = 0.589, Acc = 0.572
-- Split 3: AUC = 0.464, Acc = 0.471
-- Split 4: AUC = 0.497, Acc = 0.497
-- Split 5: AUC = 0.536, Acc = 0.529
-- **Mean Walk-Forward AUC (LGBM):** ~0.520
-- **Mean Walk-Forward AUC (LogReg):** ~0.523
+**Out-of-sample (Pooled Models, Refined Iteration):**
+- Split 1: AUC = 0.552
+- Split 2: AUC = 0.606
+- Split 3: AUC = 0.475
+- Split 4: AUC = 0.482
+- Split 5: AUC = 0.542
+- **Mean Walk-Forward AUC:** 0.531
+
+**High-Confidence Filter (Prob > 0.53 or < 0.47):**
+- The mean AUC on filtered subsets dropped slightly to 0.527, proving that the model's confidence is severely miscalibrated OOS and does not separate classes better than the unfiltered set.
+
+**Heuristic Baseline (Volume Spike Reversals):**
+- Testing rules like "Buy the close on a heavy volume down day" generated a 51.27% out-of-sample accuracy covering ~62% of days. Not significantly better than chance.
 
 ## 7. Robustness and Adversarial Results
-- The Out-of-sample AUC heavily fluctuated across splits (0.46 to 0.58).
-- Randomized Labels check in Split 5 yielded an AUC of 0.513 vs true label AUC of 0.536, showing a very marginal edge.
-- Asset Stability check on the final split showed the model predicts well on some (SOL AUC=0.60, LTC AUC=0.58) but fails completely on others (TRX AUC=0.44, XRP AUC=0.46, MATIC AUC=0.48).
+- The Out-of-sample AUC heavily fluctuated across splits and time periods.
+- Randomized Labels check in Split 5 yielded an AUC of 0.51 vs true label AUC of 0.54, showing an extremely thin edge that is likely an artifact of non-stationary volatility regimes.
+- Asset Specific Deep Dive (SOL): Modeling SOL purely on its own history peaked at 0.59 AUC in some splits but dropped to 0.46 in others. The overall mean AUC was 0.539, which again is not tradable or consistent.
 
 ## 8. Final Judgment: REJECTED
-While there are isolated pockets of predictive power (e.g., in highly volatile assets or specific bullish time-windows), there is **no consistently stable, durable, cross-asset edge**. Out-of-sample performance collapses into random noise (~0.50 AUC) for several time slices and completely inverted on some assets. Given the structural testing requirements, the dataset and feature families explored do not support a tradable claim.
+Extensive iteration across multi-day contexts, strict intraday sequences, and volume heuristics confirms that there is **no consistently stable, durable, cross-asset edge** in predicting the dominant next-day excursion from standard 4H price/volume data. Out-of-sample performance frequently collapses into random noise or inverts. The minor localized bumps in AUC (~0.55) fail walk-forward robustness and are non-generalizable across assets.
 
-**Recommendation:** The hypothesis of predicting the dominant next-day excursion using pure price-action and standard technical regime markers on this 4H crypto dataset is rejected.
+**Recommendation:** The hypothesis is thoroughly rejected. Any appearance of an edge in-sample is entirely the result of overfitting to specific historical regime correlations.
